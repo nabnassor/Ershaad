@@ -52,7 +52,7 @@ dialog::backdrop{background:rgba(35,80,123,.35)}
 <div id="loginView">
   <div class="card">
     <h1 style="margin:0 0 4px">إرشاد 🃏</h1>
-    <p class="hint">لوحة التحكم — Admin panel</p>
+    <p class="hint">لوحة التحكم — Admin panel · <b>v4</b></p>
     <label>البريد الإلكتروني / Email</label><input id="email" type="email" autocomplete="username">
     <label>كلمة المرور / Password</label><input id="pass" type="password" autocomplete="current-password">
     <p id="loginErr" style="color:var(--danger);font-size:13px;min-height:18px"></p>
@@ -208,21 +208,41 @@ if (firebaseConfig.apiKey.startsWith("PASTE")) {
 }
 // AUTO-CONFIG: fetches the real config straight from your Firebase project (irshad-8199d).
 // Manual pasting is now optional — if you ever paste a config above, it takes priority.
+const FB_HOSTS = ["https://irshad-8199d.firebaseapp.com", "https://irshad-8199d.web.app"];
+function configViaScript(host){
+  return new Promise((resolve, reject)=>{
+    const prev = window.firebase;
+    const done = fn=>v=>{ window.firebase = prev; fn(v); };
+    window.firebase = { initializeApp: done(resolve) };
+    const sc = document.createElement("script");
+    sc.src = host + "/__/firebase/init.js";
+    sc.onerror = done(()=>reject(new Error("script")));
+    document.head.appendChild(sc);
+    setTimeout(done(()=>reject(new Error("timeout"))), 7000);
+  });
+}
 async function resolveConfig(){
   if(!String(firebaseConfig.apiKey||"").startsWith("PASTE")) return firebaseConfig;
-  const res = await fetch("https://irshad-8199d.firebaseapp.com/__/firebase/init.json");
-  if(!res.ok) throw new Error("init.json "+res.status);
-  return await res.json();
+  for(const h of FB_HOSTS){ try{ return await configViaScript(h); }catch(e){} }
+  for(const h of FB_HOSTS){
+    try{ const r = await fetch(h+"/__/firebase/init.json"); if(r.ok) return await r.json(); }catch(e){}
+  }
+  return null;
 }
-let CFG;
-try{ CFG = await resolveConfig(); }
-catch(e){
+const CFG = await resolveConfig();
+let app = null, configErrorShown = false;
+function showConfigHelp(){
+  configErrorShown = true;
   const el = document.getElementById("loginErr");
-  if(el) el.textContent = "تعذّر تحميل إعدادات Firebase تلقائيًا — تحقق من الإنترنت / Could not auto-load Firebase config: " + e.message;
-  throw e;
+  el.innerHTML = "لم يتمكن الموقع من الاتصال بإعدادات Firebase تلقائيًا.<br>"
+    + "<b>الحل النهائي (دقيقة واحدة):</b> افتح إعدادات المشروع ← Your apps ← Config، "
+    + "انسخ firebaseConfig والصقه في أول admin.html مكان PASTE_YOUR_API_KEY ثم ارفعه إلى GitHub.<br>"
+    + "Could not auto-connect. Final fix (1 min): Project settings → Your apps → Config, "
+    + "paste firebaseConfig at the top of admin.html, re-upload.";
 }
-const app = initializeApp(CFG);
-const auth = getAuth(app), db = F.getFirestore(app);
+if(CFG){ app = initializeApp(CFG); } else { showConfigHelp(); }
+const auth = app ? getAuth(app) : null;
+const db = app ? F.getFirestore(app) : null;
 const $ = id => document.getElementById(id);
 const toast = m => { const t=$("toast"); t.textContent=m; t.style.display="block"; setTimeout(()=>t.style.display="none",2600); };
 
@@ -230,6 +250,7 @@ let cats=[], cards=[], editingCard=null, editingCat=null;
 
 /* ---------- auth ---------- */
 $("loginBtn").onclick = async ()=>{
+  if(!auth){ showConfigHelp(); return; }
   $("loginErr").textContent="";
   try{ await signInWithEmailAndPassword(auth, $("email").value.trim(), $("pass").value); }
   catch(e){
@@ -249,6 +270,7 @@ $("loginBtn").onclick = async ()=>{
 };
 $("logoutBtn").onclick = ()=>signOut(auth);
 $("resetBtn").onclick = async ()=>{
+  if(!auth){ showConfigHelp(); return; }
   const em = $("email").value.trim();
   if(!em){ $("loginErr").textContent = "اكتب بريدك أولًا ثم اضغط الزر / Type your email first"; return; }
   try{
@@ -263,9 +285,8 @@ $("resetBtn").onclick = async ()=>{
   }
 };
 // shows which file version is live and which Firebase project this page talks to
-$("buildInfo").textContent = "admin v3 · Firebase project: " +
-  (CFG.projectId || "unknown");
-onAuthStateChanged(auth, u=>{
+$("buildInfo").textContent = "admin v4 · Firebase project: " + (CFG && CFG.projectId ? CFG.projectId : "غير متصل / not connected");
+if(auth) onAuthStateChanged(auth, u=>{
   $("loginView").style.display = u ? "none" : "grid";
   $("dash").style.display = u ? "block" : "none";
   if(u){ $("who").textContent = u.email; loadAll(); }

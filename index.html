@@ -343,8 +343,31 @@ let db=null, fs=null, currentCat=null;
 async function initFirebase(){
   let cfg = firebaseConfig;
   if(String(cfg.apiKey||"").startsWith("PASTE")){
-    try{ cfg = await (await fetch("https://irshad-8199d.firebaseapp.com/__/firebase/init.json")).json(); }
-    catch(e){ showOffline(); return; }
+    try{
+      const hosts = ["https://irshad-8199d.firebaseapp.com","https://irshad-8199d.web.app"];
+      let got = null;
+      for(const h of hosts){
+        try{
+          got = await new Promise((resolve, reject)=>{
+            const prev = window.firebase;
+            const done = fn=>v=>{ window.firebase = prev; fn(v); };
+            window.firebase = { initializeApp: done(resolve) };
+            const sc = document.createElement("script");
+            sc.src = h + "/__/firebase/init.js";
+            sc.onerror = done(()=>reject(new Error("cfg")));
+            document.head.appendChild(sc);
+            setTimeout(done(()=>reject(new Error("cfg timeout"))), 7000);
+          });
+          break;
+        }catch(e){}
+      }
+      if(!got) for(const h of hosts){
+        try{ const r = await fetch(h+"/__/firebase/init.json"); if(r.ok){ got = await r.json(); break; } }catch(e){}
+      }
+      if(!got){ showOffline(); return; }
+      cfg = got;
+    }catch(e){ showOffline(); return;
+    }
   }
   try{
     const {initializeApp} = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js");
